@@ -5,6 +5,90 @@ import Dropzone from 'react-dropzone';
 
 type Mode = 'encode' | 'decode';
 
+// Steganography utility functions
+const steganography = {
+  encode: async (image: File, message: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+
+          // Get image data
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const pixels = imageData.data;
+
+          // Convert message to binary
+          const binary = message.split('').map(char => 
+            char.charCodeAt(0).toString(2).padStart(8, '0')
+          ).join('');
+
+          // Embed message length at the beginning
+          const lengthBinary = message.length.toString(2).padStart(16, '0');
+          const totalBinary = lengthBinary + binary;
+
+          // Embed data in least significant bits
+          for (let i = 0; i < totalBinary.length; i++) {
+            const bit = parseInt(totalBinary[i]);
+            pixels[i * 4] = (pixels[i * 4] & 254) | bit;
+          }
+
+          ctx.putImageData(imageData, 0, 0);
+          resolve(canvas.toDataURL());
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(image);
+    });
+  },
+
+  decode: async (image: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const pixels = imageData.data;
+
+          // Extract message length (first 16 bits)
+          let lengthBinary = '';
+          for (let i = 0; i < 16; i++) {
+            lengthBinary += pixels[i * 4] & 1;
+          }
+          const messageLength = parseInt(lengthBinary, 2);
+
+          // Extract message bits
+          let messageBinary = '';
+          for (let i = 16; i < 16 + messageLength * 8; i++) {
+            messageBinary += pixels[i * 4] & 1;
+          }
+
+          // Convert binary to text
+          const message = messageBinary.match(/.{8}/g)?.map(byte => 
+            String.fromCharCode(parseInt(byte, 2))
+          ).join('') || '';
+
+          resolve(message);
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(image);
+    });
+  }
+};
+
 function Preloader() {
   return (
     <motion.div
@@ -87,35 +171,47 @@ function App() {
   const [decodedMessage, setDecodedMessage] = useState<string | null>(null);
   const [showProcessPopup, setShowProcessPopup] = useState(false);
   const [showResultPopup, setShowResultPopup] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    // Simulate initial loading
     const timer = setTimeout(() => setLoading(false), 2000);
     return () => clearTimeout(timer);
   }, []);
 
-  const handleImageDrop = (acceptedFiles: File[]) => {
+  const handleImageDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       setSelectedImage(acceptedFiles[0]);
       setShowProcessPopup(true);
+      
       if (mode === 'decode') {
-        // Simulate decoding (replace with actual steganography logic)
-        setTimeout(() => {
-          setDecodedMessage('Hidden message decoded: Hello World!');
+        setIsProcessing(true);
+        try {
+          const message = await steganography.decode(acceptedFiles[0]);
+          setDecodedMessage(message);
           setShowProcessPopup(false);
           setShowResultPopup(true);
-        }, 1500);
+        } catch (error) {
+          console.error('Error decoding message:', error);
+          setDecodedMessage('Failed to decode message. Please try another image.');
+        }
+        setIsProcessing(false);
       }
     }
   };
 
-  const handleEncode = () => {
+  const handleEncode = async () => {
     if (selectedImage && message) {
-      // Simulate encoding (replace with actual steganography logic)
-      const imageUrl = URL.createObjectURL(selectedImage);
-      setResultImage(imageUrl);
-      setShowProcessPopup(false);
-      setShowResultPopup(true);
+      setIsProcessing(true);
+      try {
+        const encodedImageUrl = await steganography.encode(selectedImage, message);
+        setResultImage(encodedImageUrl);
+        setShowProcessPopup(false);
+        setShowResultPopup(true);
+      } catch (error) {
+        console.error('Error encoding message:', error);
+        alert('Failed to encode message. Please try again.');
+      }
+      setIsProcessing(false);
     }
   };
 
@@ -250,10 +346,14 @@ function App() {
                           whileTap={{ scale: 0.95 }}
                           className="w-full px-6 py-3 bg-cyan-500 rounded-lg flex items-center justify-center gap-2"
                           onClick={handleEncode}
-                          disabled={!selectedImage || !message}
+                          disabled={!selectedImage || !message || isProcessing}
                         >
-                          <Lock className="w-5 h-5" />
-                          Encode Message
+                          {isProcessing ? (
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Lock className="w-5 h-5" />
+                          )}
+                          {isProcessing ? 'Processing...' : 'Encode Message'}
                         </motion.button>
                       </>
                     )}
@@ -303,7 +403,11 @@ function App() {
                       </motion.a>
                     </div>
                   ) : (
-                    <p className="text-gray-300">{decodedMessage}</p>
+                    <div className="bg-gray-700 rounded-lg p-4">
+                      <p className="text-cyan-400 font-mono">
+                        {decodedMessage}
+                      </p>
+                    </div>
                   )}
                 </div>
               </motion.div>
