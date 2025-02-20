@@ -25,7 +25,7 @@ STEGNO is a modern web application that provides secure image steganography capa
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/stegno.git
+   git clone https://github.com/mrajaysingh/AICTC-CYBERSECURITY-PROJECT.git
    cd stegno
    ```
 
